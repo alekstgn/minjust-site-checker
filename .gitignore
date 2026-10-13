@@ -1,0 +1,14 @@
+# выгруженные данные и результаты (генерируются скриптами)
+registries/
+site_text/
+matches_raw.json
+dropped_aliases.json
+
+# отчёты Excel (результаты работы)
+*.xlsx
+
+# служебные файлы
+__pycache__/
+*.pyc
+*.html
+.DS_Store
