@@ -151,8 +151,8 @@ def person_variants(name):
     return variants
 
 
-def build_patterns(entities, df, dropped):
-    """df: Counter(token -> число страниц, где токен встречается)."""
+def build_patterns(entities, df, bdf, dropped):
+    """df: Counter(токен -> число страниц); bdf: зарезервирован (частотность биграмм)."""
     pats = []
 
     def tok_tuple(s):
@@ -294,7 +294,27 @@ def search(pages, pats, entities, ctx_chars=120):
                     if i + ln > ntoks:
                         continue
                     if tuple(toks[i + k][0] for k in range(ln)) == ptoks:
+                        e = entities[eidx]
                         start, end = toks[i][1], toks[i + ln - 1][2]
+                        # название организации вида «Шапка «Имя»»: совпадение не должно
+                        # продолжаться словами (иначе «проект "Эхо"» поймает «Эхо наших побед»)
+                        if e["kind"] != "иноагент" or not FIO_RE.match(e["name"].split(" «")[0]):
+                            has_q = any(c in e["name"] for c in "«»\"“”„‟")
+                            if has_q and ln <= 3:
+                                j = end
+                                while j < len(text) and text[j].isspace():
+                                    j += 1
+                                if j < len(text) and (text[j].isalpha() or text[j].isdigit()):
+                                    i += 1
+                                    continue
+                                # название целиком в кавычках — проверяем Заглавность в оригинале,
+                                # иначе «Настоящая Россия» поймает «...настоящим России»
+                                if e["name"][:1] in "«\"“„":
+                                    span = text[toks[i][1]:end]
+                                    words = re.findall(r"[^\W_]+", span, re.UNICODE)
+                                    if not (words and all(w[0].isupper() for w in words)):
+                                        i += 1
+                                        continue
                         a = text.rfind(" ", 0, max(0, start - ctx_chars))
                         b = text.find(" ", min(len(text), end + ctx_chars))
                         context = re.sub(r"\s+", " ", text[a + 1 if a != -1 else 0: b if b != -1 else len(text)]).strip()
@@ -323,17 +343,18 @@ def main(pages_file="site_text/pages.json"):
     pages = json.load(open(pages_file, encoding="utf-8"))
     print(f"страниц: {len(pages)}")
 
-    # частота слов по корпусу (страницы, где слово встречается)
+    # частота слов и биграмм по корпусу (число страниц, где встречаются)
     df = Counter()
+    bdf = Counter()
     for p in pages:
-        for tok, _, _ in tokenize_with_offsets(p.get("text") or ""):
-            df[tok] += 0  # заглушка, ниже корректно
-    for p in pages:
-        for tok in {t for t, _, _ in tokenize_with_offsets(p.get("text") or "")}:
+        toks = [t for t, _, _ in tokenize_with_offsets(p.get("text") or "")]
+        for tok in set(toks):
             df[tok] += 1
+        for pair in set(zip(toks, toks[1:])):
+            bdf[pair] += 1
 
     dropped = []
-    pats = build_patterns(entities, df, dropped)
+    pats = build_patterns(entities, df, bdf, dropped)
     print(f"сущностей: {len(entities)}, паттернов: {len(pats)}, отсеяно алиасов: {len(dropped)}")
 
     results = search(pages, pats, entities)
