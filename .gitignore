@@ -1,7 +1,8 @@
 # выгруженные данные и результаты (генерируются скриптами)
 registries/
 site_text/
-matches_raw.json
+matches_*_raw.json
+dropped_aliases.json
 dropped_aliases.json
 
 # отчёты Excel (результаты работы)
