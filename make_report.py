@@ -153,7 +153,7 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
                 fill = "FFC7CE"  # красный — реальное упоминание без маркировки
             else:
                 fill = "FFEB9C"
-            ws.cell(row=row, column=15).fill = PatternFill("solid", fgColor=fill)
+            ws.cell(row=row, column=13).fill = PatternFill("solid", fgColor=fill)
         link(ws, row, 2, r["url"])
     n_cols = len(headers)
     for i, w in enumerate([13, 40, 28, 24, 40, 24, 24, 20, 9, 70, 16, 30, 14, 30, 45], 1):
