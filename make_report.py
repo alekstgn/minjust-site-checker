@@ -55,6 +55,7 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
 
     orgs = [r for r in matches if r["kind"] != "экстремистский материал"]
     mats = [r for r in matches if r["kind"] == "экстремистский материал"]
+    has_ai = bool(orgs) and "ai_marking" in orgs[0]
 
     wb = Workbook()
 
@@ -82,22 +83,35 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
         [""],
         ["РЕЗУЛЬТАТЫ", ""],
         ["Упоминания иноагентов и организаций (страница×сущность)", len(orgs)],
+    ]
+    if has_ai:
+        real = [r for r in orgs if r.get("ai_subject") == "реальная сущность"]
+        imark = [r for r in real if r.get("ai_marking") == "есть"]
+        nomark = [r for r in real if r.get("ai_marking") == "нет"]
+        rows += [
+            ["  ИИ: подтверждено реальных упоминаний", len(real)],
+            ["  ИИ: отсечено тёзок/совпадений слов", len(orgs) - len(real)],
+            ["  ИИ: из реальных — с маркировкой статуса", len(imark)],
+            ["  ИИ: из реальных — БЕЗ маркировки (см. лист «Без маркировки»)", len(nomark)],
+        ]
+    rows += [
         ["  точные совпадения названия/ФИО", len([r for r in orgs if "точное" in r["tier"]])],
-        ["  возможные (инициалы/порядок слов — распространённые фамилии)", len([r for r in orgs if "точное" not in r["tier"]])],
+        ["  возможные (инициалы/порядок слов)", len([r for r in orgs if "точное" not in r["tier"]])],
         ["Совпадения названий экстремистских материалов", len(mats)],
-        ["  (название совпало — контекст почти всегда исторический термин, требует просмотра)", ""],
+        ["  (название совпало — контекст часто исторический термин, требует просмотра)", ""],
         [""],
         ["КАК ЧИТАТЬ ОТЧЁТ", ""],
         ["  Лист «Иноагенты и организации» — основной результат", ""],
-        ["  Красная отметка = точное совпадение названия организации или полного ФИО", ""],
-        ["  Жёлтая = сработали инициалы или переставленные слова (распространённые фамилии) — проверьте контекст", ""],
-        ["  Лист «Материалы» = совпали названия запрещённых книг/фильмов/изданий; контекст часто", ""],
-        ["  оказывается историческим термином («Коктейль Молотова», «Василий Тёркин»), но просмотреть стоит", ""],
+        ["  Серый в колонке «ИИ: маркировка» = тёзка/другое значение, можно не трогать", ""],
+        ["  Зелёный = маркировка статуса стоит, всё в порядке", ""],
+        ["  Красный = реальное упоминание БЕЗ маркировки — см. лист «Без маркировки»", ""],
+        ["  Лист «Материалы» = совпали названия запрещённых книг/фильмов/изданий", ""],
         [""],
         ["ОГРАНИЧЕНИЯ МЕТОДА", ""],
         ["  Проверялись тексты страниц; текст в картинках/PDF-вложениях не анализировался", ""],
-        ["  Однословные названия организаций-иноагентов проверялись только при ≤5 упоминаниях слова по всему сайту", ""],
-        ["  Полный список отфильтрованных алиасов — на листе «Отсеянные алиасы»", ""],
+        ["  ИИ видит контекст ±500 знаков и конец страницы; пометка в виде сноски,", ""],
+        ["   вынесенной в другое место страницы, могла быть не замечена", ""],
+        ["  Вердикты ИИ — черновик для человека, финальное решение за редакцией", ""],
     ]
     for r in rows:
         ws3.append(r)
@@ -111,22 +125,64 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
     headers = ["Раздел", "Страница (ссылка)", "Заголовок страницы", "Тип",
                "Что найдено (по реестру)", "Что именно совпало", "Уверенность",
                "Статус в реестре", "Вхождений на странице", "Контекст"]
+    if has_ai:
+        headers += ["ИИ: сущность или тёзка", "ИИ: пояснение", "ИИ: маркировка",
+                    "ИИ: цитата-пометка", "ИИ: комментарий"]
     ws.append(headers)
     style_header(ws)
     orgs.sort(key=lambda r: (0 if "точное" in r["tier"] else 1, r["kind"], r["section"], r["url"]))
     for r in orgs:
-        ws.append([r["section"], r["url"], r["title"], r["kind"], r["matched"],
-                   r["alias_label"], TIER_RU.get(r["tier"], r["tier"]), r["status"],
-                   r["hits_on_page"], r["context"]])
+        line = [r["section"], r["url"], r["title"], r["kind"], r["matched"],
+                r["alias_label"], TIER_RU.get(r["tier"], r["tier"]), r["status"],
+                r["hits_on_page"], r["context"]]
+        if has_ai:
+            line += [r.get("ai_subject", ""), r.get("ai_subject_note", ""),
+                     r.get("ai_marking", ""), r.get("ai_evidence", ""), r.get("ai_comment", "")]
+        ws.append(line)
         row = ws.max_row
-        ws.cell(row=row, column=7).fill = PatternFill("solid", fgColor=TIER_FILL.get(r["tier"], "FFFFFF"))
+        if not has_ai:
+            ws.cell(row=row, column=7).fill = PatternFill("solid", fgColor=TIER_FILL.get(r["tier"], "FFFFFF"))
+        else:
+            subj = r.get("ai_subject", "")
+            mark = r.get("ai_marking", "")
+            if subj == "тёзка/другое значение":
+                fill = "D9D9D9"  # серый — тёзка
+            elif mark == "есть":
+                fill = "C6EFCE"  # зелёный — маркировка есть
+            elif mark == "нет":
+                fill = "FFC7CE"  # красный — реальное упоминание без маркировки
+            else:
+                fill = "FFEB9C"
+            ws.cell(row=row, column=15).fill = PatternFill("solid", fgColor=fill)
         link(ws, row, 2, r["url"])
-    set_widths(ws, [13, 42, 32, 26, 42, 26, 26, 20, 10, 95])
+    n_cols = len(headers)
+    for i, w in enumerate([13, 40, 28, 24, 40, 24, 24, 20, 9, 70, 16, 30, 14, 30, 45], 1):
+        if i <= n_cols:
+            ws.column_dimensions[get_column_letter(i)].width = w
     for r_ in ws.iter_rows(min_row=2):
         for c in r_:
             c.alignment = Alignment(vertical="top", wrap_text=True)
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:J{ws.max_row}"
+    ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{ws.max_row}"
+
+    # ================= Без маркировки (задание редакции) =================
+    if has_ai:
+        nomark = [r for r in orgs if r.get("ai_subject") == "реальная сущность" and r.get("ai_marking") == "нет"]
+        ws = wb.create_sheet("Без маркировки")
+        ws.append(["Раздел", "Страница (ссылка)", "Заголовок страницы", "Сущность из реестра",
+                   "Статус в реестре", "ИИ: комментарий", "Контекст"])
+        style_header(ws)
+        nomark.sort(key=lambda r: (r["kind"], r["matched"], r["section"]))
+        for r in nomark:
+            ws.append([r["section"], r["url"], r["title"], r["matched"],
+                       r["status"], r.get("ai_comment", ""), r["context"]])
+            link(ws, ws.max_row, 2, r["url"])
+        set_widths(ws, [13, 42, 30, 40, 20, 45, 85])
+        for r_ in ws.iter_rows(min_row=2):
+            for c in r_:
+                c.alignment = Alignment(vertical="top", wrap_text=True)
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:G{ws.max_row}"
 
     # ================= Материалы =================
     ws = wb.create_sheet("Материалы (проверить)")

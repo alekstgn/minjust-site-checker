@@ -13,3 +13,5 @@ __pycache__/
 *.pyc
 *.html
 .DS_Store
+ai_batch/batch_*.json
+ai_batch/batch_*_verdicts.json
