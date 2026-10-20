@@ -86,13 +86,17 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
     ]
     if has_ai:
         real = [r for r in orgs if r.get("ai_subject") == "реальная сущность"]
-        imark = [r for r in real if r.get("ai_marking") == "есть"]
-        nomark = [r for r in real if r.get("ai_marking") == "нет"]
+        imark = [r for r in real if r.get("final_marking", "").startswith("есть")]
+        imark_rule = [r for r in real if r.get("final_marking") == "есть (правило ±500)"]
+        imark_ai = [r for r in real if r.get("final_marking") == "есть (ИИ)"]
+        nomark = [r for r in real if r.get("final_marking") == "нет"]
         rows += [
             ["  ИИ: подтверждено реальных упоминаний", len(real)],
             ["  ИИ: отсечено тёзок/совпадений слов", len(orgs) - len(real)],
-            ["  ИИ: из реальных — с маркировкой статуса", len(imark)],
-            ["  ИИ: из реальных — БЕЗ маркировки (см. лист «Без маркировки»)", len(nomark)],
+            ["  ИТОГ: с маркировкой (правило ±500 знаков)", len(imark_rule)],
+            ["  ИТОГ: с маркировкой (нашёл ИИ)", len(imark_ai)],
+            ["  ИТОГ: всего с маркировкой", len(imark)],
+            ["  ИТОГ: БЕЗ маркировки (см. лист «Без маркировки»)", len(nomark)],
         ]
     rows += [
         ["  точные совпадения названия/ФИО", len([r for r in orgs if "точное" in r["tier"]])],
@@ -127,7 +131,7 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
                "Статус в реестре", "Вхождений на странице", "Контекст"]
     if has_ai:
         headers += ["ИИ: сущность или тёзка", "ИИ: пояснение", "ИИ: маркировка",
-                    "ИИ: цитата-пометка", "ИИ: комментарий"]
+                    "Правило ±500 знаков", "Доказательство правила", "МАРКИРОВКА (ИТОГ)", "ИИ: комментарий"]
     ws.append(headers)
     style_header(ws)
     orgs.sort(key=lambda r: (0 if "точное" in r["tier"] else 1, r["kind"], r["section"], r["url"]))
@@ -137,26 +141,26 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
                 r["hits_on_page"], r["context"]]
         if has_ai:
             line += [r.get("ai_subject", ""), r.get("ai_subject_note", ""),
-                     r.get("ai_marking", ""), r.get("ai_evidence", ""), r.get("ai_comment", "")]
+                     r.get("ai_marking", ""), r.get("rule_marking", ""),
+                     r.get("rule_evidence", ""), r.get("final_marking", ""), r.get("ai_comment", "")]
         ws.append(line)
         row = ws.max_row
         if not has_ai:
             ws.cell(row=row, column=7).fill = PatternFill("solid", fgColor=TIER_FILL.get(r["tier"], "FFFFFF"))
         else:
-            subj = r.get("ai_subject", "")
-            mark = r.get("ai_marking", "")
-            if subj == "тёзка/другое значение":
+            fin = r.get("final_marking", "")
+            if fin.startswith("не применимо"):
                 fill = "D9D9D9"  # серый — тёзка
-            elif mark == "есть":
+            elif fin.startswith("есть"):
                 fill = "C6EFCE"  # зелёный — маркировка есть
-            elif mark == "нет":
-                fill = "FFC7CE"  # красный — реальное упоминание без маркировки
-            else:
+            elif fin == "неопределённо":
                 fill = "FFEB9C"
-            ws.cell(row=row, column=13).fill = PatternFill("solid", fgColor=fill)
+            else:
+                fill = "FFC7CE"  # красный — без маркировки
+            ws.cell(row=row, column=16).fill = PatternFill("solid", fgColor=fill)
         link(ws, row, 2, r["url"])
     n_cols = len(headers)
-    for i, w in enumerate([13, 40, 28, 24, 40, 24, 24, 20, 9, 70, 16, 30, 14, 30, 45], 1):
+    for i, w in enumerate([13, 40, 28, 24, 40, 24, 24, 20, 9, 70, 16, 30, 13, 13, 40, 18, 45], 1):
         if i <= n_cols:
             ws.column_dimensions[get_column_letter(i)].width = w
     for r_ in ws.iter_rows(min_row=2):
@@ -167,17 +171,18 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
 
     # ================= Без маркировки (задание редакции) =================
     if has_ai:
-        nomark = [r for r in orgs if r.get("ai_subject") == "реальная сущность" and r.get("ai_marking") == "нет"]
+        nomark = [r for r in orgs if r.get("ai_subject") == "реальная сущность"
+                  and not r.get("final_marking", "").startswith("есть")]
         ws = wb.create_sheet("Без маркировки")
         ws.append(["Раздел", "Страница (ссылка)", "Заголовок страницы", "Сущность из реестра",
-                   "Статус в реестре", "ИИ: комментарий", "Контекст"])
+                   "Статус в реестре", "Итог маркировки", "ИИ: комментарий", "Контекст"])
         style_header(ws)
         nomark.sort(key=lambda r: (r["kind"], r["matched"], r["section"]))
         for r in nomark:
             ws.append([r["section"], r["url"], r["title"], r["matched"],
-                       r["status"], r.get("ai_comment", ""), r["context"]])
+                       r["status"], r.get("final_marking", ""), r.get("ai_comment", ""), r["context"]])
             link(ws, ws.max_row, 2, r["url"])
-        set_widths(ws, [13, 42, 30, 40, 20, 45, 85])
+        set_widths(ws, [13, 42, 30, 40, 20, 18, 45, 85])
         for r_ in ws.iter_rows(min_row=2):
             for c in r_:
                 c.alignment = Alignment(vertical="top", wrap_text=True)

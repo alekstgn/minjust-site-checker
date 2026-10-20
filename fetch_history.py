@@ -106,10 +106,10 @@ def main():
             if done % 250 == 0:
                 rate = done / (time.time() - t0)
                 print(f"  {done}/{len(tasks)} ({rate:.1f} стр/с, ок {len(pages)})")
-                with open("site_text/pages.json", "w", encoding="utf-8") as f:
+                with open("site_text/pages_history.json", "w", encoding="utf-8") as f:
                     json.dump(pages, f, ensure_ascii=False)
 
-    with open("site_text/pages.json", "w", encoding="utf-8") as f:
+    with open("site_text/pages_history.json", "w", encoding="utf-8") as f:
         json.dump(pages, f, ensure_ascii=False)
     from collections import Counter
     c = Counter(p["section"] for p in pages)
