@@ -48,7 +48,10 @@ def link(ws, row, col, url):
 
 
 def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
-         dropped_file="dropped_aliases.json", out_file="matches.xlsx", site_name="history.ru"):
+         dropped_file="dropped_aliases.json", out_file="matches.xlsx", site_name="history.ru",
+         mode="full"):
+    """mode='full' — обычный отчёт; mode='unmarked' — главный лист только БЕЗ пометки
+    (замаркированные и тёзки уходят на справочные листы, из выдачи скрыты)."""
     matches = json.load(open(matches_file, encoding="utf-8"))
     pages = json.load(open(pages_file, encoding="utf-8"))
     dropped = json.load(open(dropped_file, encoding="utf-8"))
@@ -125,52 +128,67 @@ def main(matches_file="matches_raw.json", pages_file="site_text/pages.json",
     set_widths(ws3, [95, 90])
 
     # ================= Иноагенты и организации =================
-    ws = wb.create_sheet("Иноагенты и организации")
-    headers = ["Раздел", "Страница (ссылка)", "Заголовок страницы", "Тип",
-               "Что найдено (по реестру)", "Что именно совпало", "Уверенность",
-               "Статус в реестре", "Вхождений на странице", "Контекст"]
-    if has_ai:
-        headers += ["ИИ: сущность или тёзка", "ИИ: пояснение", "ИИ: маркировка",
-                    "Правило ±500 знаков", "Доказательство правила", "МАРКИРОВКА (ИТОГ)", "ИИ: комментарий"]
-    ws.append(headers)
-    style_header(ws)
-    orgs.sort(key=lambda r: (0 if "точное" in r["tier"] else 1, r["kind"], r["section"], r["url"]))
-    for r in orgs:
-        line = [r["section"], r["url"], r["title"], r["kind"], r["matched"],
-                r["alias_label"], TIER_RU.get(r["tier"], r["tier"]), r["status"],
-                r["hits_on_page"], r["context"]]
+    def write_org_sheet(name, rows_list):
+        ws = wb.create_sheet(name)
+        headers = ["Раздел", "Страница (ссылка)", "Заголовок страницы", "Тип",
+                   "Что найдено (по реестру)", "Что именно совпало", "Уверенность",
+                   "Статус в реестре", "Вхождений на странице", "Контекст"]
         if has_ai:
-            line += [r.get("ai_subject", ""), r.get("ai_subject_note", ""),
-                     r.get("ai_marking", ""), r.get("rule_marking", ""),
-                     r.get("rule_evidence", ""), r.get("final_marking", ""), r.get("ai_comment", "")]
-        ws.append(line)
-        row = ws.max_row
-        if not has_ai:
-            ws.cell(row=row, column=7).fill = PatternFill("solid", fgColor=TIER_FILL.get(r["tier"], "FFFFFF"))
-        else:
-            fin = r.get("final_marking", "")
-            if fin.startswith("не применимо"):
-                fill = "D9D9D9"  # серый — тёзка
-            elif fin.startswith("есть"):
-                fill = "C6EFCE"  # зелёный — маркировка есть
-            elif fin == "неопределённо":
-                fill = "FFEB9C"
+            headers += ["ИИ: сущность или тёзка", "ИИ: пояснение", "ИИ: маркировка",
+                        "Правило ±500 знаков", "Доказательство правила", "МАРКИРОВКА (ИТОГ)", "ИИ: комментарий"]
+        ws.append(headers)
+        style_header(ws)
+        for r in rows_list:
+            line = [r["section"], r["url"], r["title"], r["kind"], r["matched"],
+                    r["alias_label"], TIER_RU.get(r["tier"], r["tier"]), r["status"],
+                    r["hits_on_page"], r["context"]]
+            if has_ai:
+                line += [r.get("ai_subject", ""), r.get("ai_subject_note", ""),
+                         r.get("ai_marking", ""), r.get("rule_marking", ""),
+                         r.get("rule_evidence", ""), r.get("final_marking", ""), r.get("ai_comment", "")]
+            ws.append(line)
+            row = ws.max_row
+            if not has_ai:
+                ws.cell(row=row, column=7).fill = PatternFill("solid", fgColor=TIER_FILL.get(r["tier"], "FFFFFF"))
             else:
-                fill = "FFC7CE"  # красный — без маркировки
-            ws.cell(row=row, column=16).fill = PatternFill("solid", fgColor=fill)
-        link(ws, row, 2, r["url"])
-    n_cols = len(headers)
-    for i, w in enumerate([13, 40, 28, 24, 40, 24, 24, 20, 9, 70, 16, 30, 13, 13, 40, 18, 45], 1):
-        if i <= n_cols:
-            ws.column_dimensions[get_column_letter(i)].width = w
-    for r_ in ws.iter_rows(min_row=2):
-        for c in r_:
-            c.alignment = Alignment(vertical="top", wrap_text=True)
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{ws.max_row}"
+                fin = r.get("final_marking", "")
+                if fin.startswith("не применимо"):
+                    fill = "D9D9D9"  # серый — тёзка
+                elif fin.startswith("есть"):
+                    fill = "C6EFCE"  # зелёный — маркировка есть
+                elif fin == "неопределённо":
+                    fill = "FFEB9C"
+                else:
+                    fill = "FFC7CE"  # красный — без маркировки
+                ws.cell(row=row, column=16).fill = PatternFill("solid", fgColor=fill)
+            link(ws, row, 2, r["url"])
+        n_cols = len(headers)
+        for i, w in enumerate([13, 40, 28, 24, 40, 24, 24, 20, 9, 70, 16, 30, 13, 13, 40, 18, 45], 1):
+            if i <= n_cols:
+                ws.column_dimensions[get_column_letter(i)].width = w
+        for r_ in ws.iter_rows(min_row=2):
+            for c in r_:
+                c.alignment = Alignment(vertical="top", wrap_text=True)
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{ws.max_row}"
 
-    # ================= Без маркировки (задание редакции) =================
-    if has_ai:
+    orgs.sort(key=lambda r: (0 if "точное" in r["tier"] else 1, r["kind"], r["section"], r["url"]))
+    if mode == "unmarked" and has_ai:
+        # режим заказчика: в выдаче только реальные упоминания БЕЗ пометки;
+        # замаркированные и тёзки — на справочных листах
+        nomark = [r for r in orgs if r.get("ai_subject") == "реальная сущность"
+                  and not r.get("final_marking", "").startswith("есть")]
+        marked = [r for r in orgs if r.get("ai_subject") == "реальная сущность"
+                  and r.get("final_marking", "").startswith("есть")]
+        teski = [r for r in orgs if r.get("ai_subject") == "тёзка/другое значение"]
+        write_org_sheet("БЕЗ МАРКИРОВКИ (главный)", nomark)
+        write_org_sheet("С пометкой (скрыто)", marked)
+        write_org_sheet("Тёзки (справочно)", teski)
+    else:
+        write_org_sheet("Иноагенты и организации", orgs)
+
+    # ================= Без маркировки (дубль-лист только в полном режиме) =================
+    if has_ai and mode != "unmarked":
         nomark = [r for r in orgs if r.get("ai_subject") == "реальная сущность"
                   and not r.get("final_marking", "").startswith("есть")]
         ws = wb.create_sheet("Без маркировки")
